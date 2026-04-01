@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Хроносфера - 3D визуализация центрального войда</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 100;
+            pointer-events: none;
+            border-left: 4px solid #ff6b6b;
+            font-family: monospace;
+        }
+        #info h2 { margin: 0 0 5px 0; font-size: 18px; }
+        #info p { margin: 3px 0; font-size: 12px; color: #ccc; }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 15px;
+            border-radius: 5px;
+            color: white;
+            font-size: 11px;
+            font-family: monospace;
+            z-index: 100;
+            pointer-events: none;
+        }
+        .stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            text-align: right;
+            z-index: 100;
+            pointer-events: none;
+            border-right: 4px solid #4ecdc4;
+            font-family: monospace;
+        }
+        .stats .value { font-size: 20px; font-weight: bold; color: #4ecdc4; }
+        .stats .label { font-size: 10px; color: #aaa; }
+        @media (max-width: 600px) {
+            #info, .stats { display: none; }
+            #controls { font-size: 8px; bottom: 5px; left: 5px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2>🌌 Модель Хроносферы</h2>
+        <p>Центральный войд (798 Мпк) | Радиальный поток (194 км/с) | CMB диполь (l=264°, b=48°)</p>
+    </div>
+    <div class="stats">
+        <div class="label">Радиус войда</div>
+        <div class="value">798 ± 2 Мпк</div>
+        <div style="margin-top: 8px;"></div>
+        <div class="label">Скорость потока</div>
+        <div class="value">194 ± 37 км/с</div>
+        <div style="margin-top: 8px;"></div>
+        <div class="label">CMB диполь</div>
+        <div class="value">l=264°, b=48°</div>
+    </div>
+    <div id="controls">
+        🖱️ Левая кнопка: вращение | Правая: панорамирование | Колесико: масштаб
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+        
+        // ========== ПАРАМЕТРЫ МОДЕЛИ ==========
+        const R_VOID = 798;
+        const V_MAX = 194;
+        
+        // ========== ИНИЦИАЛИЗАЦИЯ ==========
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x030318);
+        scene.fog = new THREE.FogExp2(0x030318, 0.0003);
+        
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2500);
+        camera.position.set(1100, 600, 1100);
+        camera.lookAt(0, 0, 0);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        
+        const labelRenderer = new CSS2DRenderer();
+        labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        labelRenderer.domElement.style.position = 'absolute';
+        labelRenderer.domElement.style.top = '0px';
+        labelRenderer.domElement.style.left = '0px';
+        labelRenderer.domElement.style.pointerEvents = 'none';
+        document.body.appendChild(labelRenderer.domElement);
+        
+        // Орбитальный контроль
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.rotateSpeed = 0.8;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
+        
+        // ========== ЗВЕЗДНЫЙ ФОН ==========
+        const starGeometry = new THREE.BufferGeometry();
+        const starCount = 8000;
+        const starPositions = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount; i++) {
+            starPositions[i*3] = (Math.random() - 0.5) * 2500;
+            starPositions[i*3+1] = (Math.random() - 0.5) * 2500;
+            starPositions[i*3+2] = (Math.random() - 0.5) * 1500 - 500;
+        }
+        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true, opacity: 0.7 });
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+        
+        // ========== ЦЕНТРАЛЬНЫЙ ВОЙД ==========
+        // Основная сфера (полупрозрачная)
+        const voidGeometry = new THREE.SphereGeometry(R_VOID, 128, 128);
+        const voidMaterial = new THREE.MeshPhongMaterial({
+            color: 0xff4444,
+            transparent: true,
+            opacity: 0.08,
+            emissive: 0x331100
+        });
+        const voidSphere = new THREE.Mesh(voidGeometry, voidMaterial);
+        scene.add(voidSphere);
+        
+        // Яркая обводка (wireframe)
+        const edgeGeometry = new THREE.SphereGeometry(R_VOID + 5, 96, 96);
+        const edgeMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff6666,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.35
+        });
+        const voidEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
+        scene.add(voidEdge);
+        
+        // Внутренняя подсветка
+        const innerGlowGeometry = new THREE.SphereGeometry(R_VOID - 10, 64, 64);
+        const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff4422,
+            transparent: true,
+            opacity: 0.05
+        });
+        const innerGlow = new THREE.Mesh(innerGlowGeometry, glowMaterial);
+        scene.add(innerGlow);
+        
+        // ========== ГАЛАКТИКИ ==========
+        const galaxyCount = 18000;
+        const galaxyPositions = [];
+        const galaxyColors = [];
+        const galaxySizes = [];
+        
+        for (let i = 0; i < galaxyCount; i++) {
+            const theta = Math.acos(2 * Math.random() - 1);
+            const phi = 2 * Math.PI * Math.random();
+            const r = Math.pow(Math.random(), 1.2) * 1050;
+            
+            const x = r * Math.sin(theta) * Math.cos(phi);
+            const y = r * Math.sin(theta) * Math.sin(phi);
+            const z = r * Math.cos(theta);
+            
+            galaxyPositions.push(x, y, z);
+            
+            // Цвет в зависимости от расстояния и угла к CMB диполю
+            const t = Math.min(1, r / 900);
+            const angleToCMB = Math.acos((x*0.4067 + y*0.9135 + z*0.0175) / r);
+            const hotness = Math.sin(angleToCMB * 2);
+            
+            galaxyColors.push(0.6 + t * 0.4, 0.3 + t * 0.3 + hotness * 0.2, 0.4 + t * 0.3);
+            galaxySizes.push(0.5 + Math.random() * 0.6);
+        }
+        
+        const galaxyGeometry = new THREE.BufferGeometry();
+        galaxyGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(galaxyPositions), 3));
+        galaxyGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(galaxyColors), 3));
+        
+        const galaxyMaterial = new THREE.PointsMaterial({ size: 0.65, vertexColors: true, transparent: true, opacity: 0.7 });
+        const galaxies = new THREE.Points(galaxyGeometry, galaxyMaterial);
+        scene.add(galaxies);
+        
+        // ========== РАДИАЛЬНЫЕ ПОТОКИ (ЛИНИИ) ==========
+        const rayCount = 96;
+        const rayMaterial = new THREE.LineBasicMaterial({ color: 0xff8844 });
+        
+        for (let i = 0; i < rayCount; i++) {
+            const theta = Math.acos(2 * Math.random() - 1);
+            const phi = 2 * Math.PI * Math.random();
+            const dx = Math.sin(theta) * Math.cos(phi);
+            const dy = Math.sin(theta) * Math.sin(phi);
+            const dz = Math.cos(theta);
+            
+            const points = [
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(dx * 950, dy * 950, dz * 950)
+            ];
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geometry, rayMaterial);
+            scene.add(line);
+        }
+        
+        // ========== ДВИЖУЩИЕСЯ ЧАСТИЦЫ (ПОТОК) ==========
+        const flowCount = 8000;
+        const flowPositions = [];
+        const flowDirections = [];
+        
+        for (let i = 0; i < flowCount; i++) {
+            const theta = Math.acos(2 * Math.random() - 1);
+            const phi = 2 * Math.PI * Math.random();
+            const dx = Math.sin(theta) * Math.cos(phi);
+            const dy = Math.sin(theta) * Math.sin(phi);
+            const dz = Math.cos(theta);
+            
+            const r = Math.random() * 950;
+            const x = r * dx;
+            const y = r * dy;
+            const z = r * dz;
+            
+            flowPositions.push(x, y, z);
+            flowDirections.push({dx, dy, dz, speed: 0.5 + Math.random() * 0.8});
+        }
+        
+        const flowGeometry = new THREE.BufferGeometry();
+        flowGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(flowPositions), 3));
+        const flowMaterial = new THREE.PointsMaterial({ color: 0xffaa66, size: 0.35, transparent: true, opacity: 0.6 });
+        const flowParticles = new THREE.Points(flowGeometry, flowMaterial);
+        scene.add(flowParticles);
+        
+        // Сохраняем направления для анимации
+        flowParticles.userData = { directions: flowDirections, initialPos: flowPositions.slice() };
+        
+        // ========== CMB ДИПОЛЬ (ЖЕЛТАЯ СТРЕЛКА) ==========
+        const cmbVec = new THREE.Vector3(0.4067, 0.9135, 0.0175).normalize();
+        const cmbArrow = new THREE.ArrowHelper(cmbVec, new THREE.Vector3(0, 0, 0), 820, 0xffaa44, 45, 30);
+        scene.add(cmbArrow);
+        
+        // Сфера на конце стрелки
+        const cmbSphere = new THREE.Mesh(
+            new THREE.SphereGeometry(12, 16, 16),
+            new THREE.MeshStandardMaterial({ color: 0xffaa44, emissive: 0x442200 })
+        );
+        cmbSphere.position.copy(cmbVec.clone().multiplyScalar(830));
+        scene.add(cmbSphere);
+        
+        const cmbDiv = document.createElement('div');
+        cmbDiv.textContent = '🔸 CMB Диполь (l=264°, b=48°)';
+        cmbDiv.style.color = '#ffaa44';
+        cmbDiv.style.fontSize = '13px';
+        cmbDiv.style.fontWeight = 'bold';
+        cmbDiv.style.textShadow = '1px 1px 0px black';
+        cmbDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        cmbDiv.style.padding = '2px 6px';
+        cmbDiv.style.borderRadius = '4px';
+        const cmbLabel = new CSS2DObject(cmbDiv);
+        cmbLabel.position.copy(cmbVec.clone().multiplyScalar(880));
+        scene.add(cmbLabel);
+        
+        // ========== ОСЬ ЗЛА (ГОЛУБАЯ СТРЕЛКА) ==========
+        const axisVec = new THREE.Vector3(0.4060, 0.9140, 0.0170).normalize();
+        const axisArrow = new THREE.ArrowHelper(axisVec, new THREE.Vector3(0, 0, 0), 780, 0x44aaff, 40, 25);
+        scene.add(axisArrow);
+        
+        const axisDiv = document.createElement('div');
+        axisDiv.textContent = '🔷 Ось зла (l=263°, b=48°)';
+        axisDiv.style.color = '#88aaff';
+        axisDiv.style.fontSize = '11px';
+        axisDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        axisDiv.style.padding = '2px 5px';
+        axisDiv.style.borderRadius = '4px';
+        const axisLabel = new CSS2DObject(axisDiv);
+        axisLabel.position.copy(axisVec.clone().multiplyScalar(840));
+        scene.add(axisLabel);
+        
+        // ========== ХОЛОДНОЕ ПЯТНО (СИНЯЯ СТРЕЛКА) ==========
+        const coldVec = new THREE.Vector3(-0.4060, -0.7880, -0.4620).normalize();
+        const coldArrow = new THREE.ArrowHelper(coldVec, new THREE.Vector3(0, 0, 0), 780, 0x66aaff, 40, 25);
+        scene.add(coldArrow);
+        
+        const coldDiv = document.createElement('div');
+        coldDiv.textContent = '❄️ Холодное пятно (l=209°, b=-57°)';
+        coldDiv.style.color = '#88aaff';
+        coldDiv.style.fontSize = '11px';
+        coldDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        coldDiv.style.padding = '2px 5px';
+        coldDiv.style.borderRadius = '4px';
+        const coldLabel = new CSS2DObject(coldDiv);
+        coldLabel.position.copy(coldVec.clone().multiplyScalar(840));
+        scene.add(coldLabel);
+        
+        // ========== ОСВЕЩЕНИЕ ==========
+        const ambientLight = new THREE.AmbientLight(0x222222);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        directionalLight.position.set(1, 1, 1);
+        scene.add(directionalLight);
+        
+        const backLight = new THREE.PointLight(0x4466ff, 0.5);
+        backLight.position.set(-1, -1, -0.5);
+        scene.add(backLight);
+        
+        const centerLight = new THREE.PointLight(0xff6644, 0.9);
+        centerLight.position.set(0, 0, 0);
+        scene.add(centerLight);
+        
+        const fillLight = new THREE.PointLight(0x88aaff, 0.4);
+        fillLight.position.set(0.5, 0.5, 0.5);
+        scene.add(fillLight);
+        
+        // ========== АНИМАЦИЯ ==========
+        let time = 0;
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            time += 0.008;
+            
+            // Вращение звезд
+            stars.rotation.y += 0.0002;
+            stars.rotation.x += 0.0001;
+            
+            // Пульсация центрального света
+            centerLight.intensity = 0.7 + Math.sin(time * 2) * 0.15;
+            
+            // Анимация частиц потока (движение наружу)
+            const positions = flowGeometry.attributes.position.array;
+            const dirs = flowParticles.userData.directions;
+            
+            for (let i = 0; i < flowCount; i++) {
+                let r = Math.sqrt(positions[i*3]*positions[i*3] + positions[i*3+1]*positions[i*3+1] + positions[i*3+2]*positions[i*3+2]);
+                r += dirs[i].speed * 1.5;
+                if (r > 980) r = 50;
+                
+                const dx = dirs[i].dx;
+                const dy = dirs[i].dy;
+                const dz = dirs[i].dz;
+                
+                positions[i*3] = dx * r;
+                positions[i*3+1] = dy * r;
+                positions[i*3+2] = dz * r;
+            }
+            flowGeometry.attributes.position.needsUpdate = true;
+            
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+        
+        animate();
+        
+        window.addEventListener('resize', onWindowResize);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        console.log('3D сцена загружена | R_void = ' + R_VOID + ' Мпк | v_max = ' + V_MAX + ' км/с');
+    </script>
+</body>
+</html>
